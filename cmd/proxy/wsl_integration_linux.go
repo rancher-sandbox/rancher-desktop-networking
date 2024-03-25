@@ -15,17 +15,20 @@ limitations under the License.
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
-	"io"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 
-	"github.com/rancher-sandbox/rancher-desktop-networking/pkg/utils"
 	"github.com/sirupsen/logrus"
+
+	"github.com/rancher-sandbox/rancher-desktop-networking/pkg/portproxy"
+	"github.com/rancher-sandbox/rancher-desktop-networking/pkg/utils"
 )
 
 var (
@@ -49,10 +52,25 @@ func main() {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
 
+	// TODO: we can also need to remove this static proxy
+	// for k8s API because guest agent will register this port upon start up
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		logrus.Fatalf("Failed to listen on %s: %s", listenAddr, err)
 	}
+
+	//	socket, err := net.Listen("unix", "/run/wsl-proxy.sock")
+	//	if err != nil {
+	//		logrus.Errorf("failed to create listener for published ports: %s", err)
+	//	}
+	proxy, err := portproxy.NewPortProxy("/run/wsl-proxy.sock")
+	if err != nil {
+		logrus.Errorf("failed to create listener for published ports: %s", err)
+	}
+
+	// quit := make(chan struct{})
+	// go publishedPortsListener(quit, socket)
+	go proxy.Listen()
 
 	// Handle graceful shutdown
 	sigCh := make(chan os.Signal, 1)
@@ -64,8 +82,10 @@ func main() {
 	go func() {
 		<-sigCh
 		logrus.Println("Shutting down...")
+		proxy.Close()
 		listener.Close()
 		wg.Wait()
+		proxy.Wait()
 		os.Exit(0)
 	}()
 
@@ -90,24 +110,5 @@ func main() {
 			defer conn.Close()
 			utils.Pipe(conn, upstreamAddr)
 		}(conn)
-	}
-}
-
-func pipe(conn net.Conn, upstreamAddr string) {
-	upstream, err := net.Dial("tcp", upstreamAddr)
-	if err != nil {
-		logrus.Errorf("Failed to dial upstream %s: %s", upstreamAddr, err)
-		return
-	}
-	defer upstream.Close()
-
-	go func() {
-		if _, err := io.Copy(upstream, conn); err != nil {
-			logrus.Debugf("Error copying to upstream: %s", err)
-		}
-	}()
-
-	if _, err := io.Copy(conn, upstream); err != nil {
-		logrus.Debugf("Error copying from upstream: %s", err)
 	}
 }
