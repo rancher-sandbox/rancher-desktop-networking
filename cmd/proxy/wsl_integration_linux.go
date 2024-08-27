@@ -37,7 +37,7 @@ var (
 const (
 	defaultLogPath = "/var/log/wsl-proxy.log"
 	defaultSocket  = "/run/wsl-proxy.sock"
-	bridgeIPAddr   = "192.168.1.2"
+	bridgeIPAddr   = "192.168.42.2"
 )
 
 func main() {
